@@ -172,19 +172,22 @@ function Escape-Html([string]$Text) {
 
 function Add-ChangeSection([System.Text.StringBuilder]$Sb, [string]$Title, $Rows, [bool]$Grew) {
   [void]$Sb.Append('<section class="chg"><h2>' + (Escape-Html $Title) + '</h2>')
-  $items = @($Rows)
-  if ($items.Count -eq 0 -or $null -eq $Rows) {
+  $count = 0
+  if ($null -ne $Rows) {
+    if ($Rows -is [System.Collections.ICollection]) { $count = $Rows.Count } else { foreach ($row in $Rows) { $count++ } }
+  }
+  if ($count -eq 0) {
     [void]$Sb.Append('<p class="hint">None.</p></section>')
     return
   }
   $max = [int64]1
-  foreach ($row in $items) {
+  foreach ($row in $Rows) {
     $size = [int64][Math]::Abs([int64]$row.deltaBytes)
     if ($size -gt $max) { $max = $size }
   }
   $tone = 'down'
   if ($Grew) { $tone = 'up' }
-  foreach ($row in $items) {
+  foreach ($row in $Rows) {
     $delta = [int64]$row.deltaBytes
     $width = [int64]([Math]::Abs($delta) * 100 / $max)
     if ($width -lt 2) { $width = 2 }
