@@ -10,7 +10,7 @@ Same job as Tree Size: folder tree, largest files, file types, age, duplicates, 
 | `src/Compare-DiskAnalysis.ps1` | Compare two `folders.csv` snapshots |
 | `src/viewer.html` | Offline screen. Keep it next to the scanner. |
 
-`latest.json` opens in the SizeTree viewer. `latest.html` is that same tabbed screen with the scan embedded, so it opens from disk with no network. `viewer.html` must sit beside `Get-DiskAnalysis.ps1` for that HTML to be written.
+`latest.json` opens in the disk-space-analysis viewer. `latest.html` is that same tabbed screen with the scan embedded, so it opens from disk with no network. `viewer.html` must sit beside `Get-DiskAnalysis.ps1` for that HTML to be written.
 
 Each age group includes up to 40 of the largest files in that age. Click the age to list them. The full list of those files is also `latest-age-files.csv`.
 
@@ -20,7 +20,7 @@ Each file type keeps up to 40 of its largest files. Click the type to list them.
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
-.\src\Get-DiskAnalysis.ps1 -Path D:\,E:\ -OutDir C:\SizeTreeReports -Duplicates -HashDuplicates -AllocatedSize
+.\src\Get-DiskAnalysis.ps1 -Path D:\,E:\ -OutDir C:\disk-space-analysis-reports -Duplicates -HashDuplicates -AllocatedSize
 ```
 
 One path still works: `-Path D:\`. Several paths can be comma-separated or split with a semicolon. They are drawn as one map, with a button for each path.
@@ -34,7 +34,7 @@ One path still works: `-Path D:\`. Several paths can be comma-separated or split
 Use the folders CSV. It lists every folder, not only the JSON tree.
 
 ```powershell
-.\src\Compare-DiskAnalysis.ps1 -Before C:\SizeTreeReports\sizetree-20261006-020000-folders.csv -After C:\SizeTreeReports\latest-folders.csv -OutDir C:\SizeTreeReports\compare
+.\src\Compare-DiskAnalysis.ps1 -Before C:\disk-space-analysis-reports\disk-space-analysis-20261006-020000-folders.csv -After C:\disk-space-analysis-reports\latest-folders.csv -OutDir C:\disk-space-analysis-reports\compare
 ```
 
 ## Reports

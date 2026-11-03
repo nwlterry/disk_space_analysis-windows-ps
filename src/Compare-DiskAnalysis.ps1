@@ -1,16 +1,16 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Compare two SizeTree folders.csv snapshots.
+  Compare two disk-space-analysis folders.csv snapshots.
 
 .DESCRIPTION
-  Reads the folders.csv files written by Get-DiskAnalysis.ps1 (or SizeTree.exe)
+  Reads the folders.csv files written by Get-DiskAnalysis.ps1 (or disk-space-analysis.exe)
   and reports which folders grew, shrank, appeared, or disappeared.
   Parent totals include their children, so a new large file shows up on every
-  folder above it. Sort is by absolute change. Open compare.json in SizeTree.
+  folder above it. Sort is by absolute change. Open compare.json in disk-space-analysis.
 
 .EXAMPLE
-  .\Compare-DiskAnalysis.ps1 -Before C:\SizeTreeReports\sizetree-20261006-folders.csv -After C:\SizeTreeReports\latest-folders.csv -OutDir C:\SizeTreeReports\compare
+  .\Compare-DiskAnalysis.ps1 -Before C:\disk-space-analysis-reports\disk-space-analysis-20261006-folders.csv -After C:\disk-space-analysis-reports\latest-folders.csv -OutDir C:\disk-space-analysis-reports\compare
 #>
 [CmdletBinding()]
 param(
@@ -18,7 +18,7 @@ param(
   [string]$Before,
   [Parameter(Mandatory = $true)]
   [string]$After,
-  [string]$OutDir = '.\SizeTreeCompare',
+  [string]$OutDir = '.\disk-space-analysis-compare',
   [int]$Top = 100,
   [long]$MinDeltaBytes = 1MB
 )
@@ -103,7 +103,7 @@ $removedTop = Take-Top $removed $Top
 
 $report = [ordered]@{
   kind = 'compare'
-  tool = 'SizeTree.Compare'
+  tool = 'disk-space-analysis.compare'
   version = '1.0'
   generatedAt = [datetime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
   before = [ordered]@{

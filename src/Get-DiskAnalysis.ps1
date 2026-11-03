@@ -1,12 +1,12 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  SizeTree disk analysis for Windows Server 2016 and later (Windows PowerShell 5.1).
+  disk-space-analysis disk analysis for Windows Server 2016 and later (Windows PowerShell 5.1).
 
 .DESCRIPTION
   Scans one or more folders, volumes, or UNC paths and writes a Tree Size style report:
   folder tree, largest files, extension mix, age, optional duplicates, and
-  access errors. Open latest.json in the SizeTree viewer, or double-click
+  access errors. Open latest.json in the disk-space-analysis viewer, or double-click
   latest.html for the same screen offline.
 
   Junctions and symlinks are not followed. -AllocatedSize reads NTFS
@@ -27,13 +27,13 @@
   and in folders.csv, but are not expandable in the viewer.
 
 .EXAMPLE
-  .\Get-DiskAnalysis.ps1 -Path D:\,E:\ -OutDir C:\SizeTreeReports -Duplicates -HashDuplicates -AllocatedSize
+  .\Get-DiskAnalysis.ps1 -Path D:\,E:\ -OutDir C:\disk-space-analysis-reports -Duplicates -HashDuplicates -AllocatedSize
 #>
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true, Position = 0)]
   [string[]]$Path,
-  [string]$OutDir = '.\SizeTreeReports',
+  [string]$OutDir = '.\disk-space-analysis-reports',
   [int]$TopFiles = 200,
   [int]$TopFolders = 500,
   [int]$Depth = 0,
@@ -212,11 +212,11 @@ function Get-DisplayPath([string]$FullName) {
   return $FullName
 }
 
-if ($AllocatedSize -and -not ('SizeTreeNative.Alloc' -as [type])) {
+if ($AllocatedSize -and -not ('DiskSpaceNative.Alloc' -as [type])) {
   $native = @'
 using System;
 using System.Runtime.InteropServices;
-namespace SizeTreeNative {
+namespace DiskSpaceNative {
   public static class Alloc {
     const uint FILE_READ_ATTRIBUTES = 0x80;
     const uint SHARE_ALL = 7;
@@ -257,7 +257,7 @@ namespace SizeTreeNative {
 function Get-Allocated([string]$FullName, [int64]$Logical) {
   if (-not $AllocatedSize) { return $Logical }
   try {
-    $value = [int64][SizeTreeNative.Alloc]::GetAllocation((Get-ApiPath $FullName))
+    $value = [int64][DiskSpaceNative.Alloc]::GetAllocation((Get-ApiPath $FullName))
     if ($value -ge 0) { return $value }
   } catch { }
   return $Logical
@@ -661,7 +661,7 @@ $tree = New-ExportNode $root 0
 
 $report = [ordered]@{
   kind = 'scan'
-  tool = 'SizeTree.PowerShell'
+  tool = 'disk-space-analysis.powershell'
   version = '1.0'
   scannedAt = [datetime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
   host = [string]$env:COMPUTERNAME
@@ -803,16 +803,16 @@ function Escape-Html([string]$Text) {
 function Write-HtmlFile([string]$Target, [string]$Json) {
   $templatePath = Join-Path $PSScriptRoot 'viewer.html'
   $safe = $Json.Replace('<', '\u003c').Replace('>', '\u003e').Replace('&', '\u0026')
-  $embed = '<script id="sizetree-embed" type="application/json">' + $safe + '</script>'
+  $embed = '<script id="disk-space-analysis-embed" type="application/json">' + $safe + '</script>'
   if (Test-Path -LiteralPath $templatePath) {
     $template = [System.IO.File]::ReadAllText($templatePath)
-    if ($template.Contains('<!--SIZETREE_EMBED-->')) {
-      $html = $template.Replace('<!--SIZETREE_EMBED-->', $embed)
+    if ($template.Contains('<!--DISK_SPACE_ANALYSIS_EMBED-->')) {
+      $html = $template.Replace('<!--DISK_SPACE_ANALYSIS_EMBED-->', $embed)
     } else {
       $html = $template
     }
   } else {
-    $html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>SizeTree</title></head><body><p>viewer.html was not next to the script.</p>' + $embed + '</body></html>'
+    $html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>disk-space-analysis</title></head><body><p>viewer.html was not next to the script.</p>' + $embed + '</body></html>'
   }
   $utf8 = New-Object System.Text.UTF8Encoding $false
   [System.IO.File]::WriteAllText($Target, $html, $utf8)
@@ -830,7 +830,7 @@ $writeHtml = $Format -eq 'All' -or $Format -eq 'Html'
 if ($writeJson) {
   $utf8 = New-Object System.Text.UTF8Encoding $false
   [System.IO.File]::WriteAllText((Join-Path $OutDir 'latest.json'), $jsonText, $utf8)
-  [System.IO.File]::WriteAllText((Join-Path $OutDir ("sizetree-$stamp.json")), $jsonText, $utf8)
+  [System.IO.File]::WriteAllText((Join-Path $OutDir ("disk-space-analysis-$stamp.json")), $jsonText, $utf8)
 }
 if ($writeCsv) {
   $folderHeaders = @('path', 'name', 'logicalBytes', 'allocatedBytes', 'fileCount', 'folderCount', 'depth')
@@ -889,11 +889,11 @@ if ($writeCsv) {
   Write-CsvFile (Join-Path $OutDir 'latest-age-files.csv') $ageFileHeaders $ageFileRows
   Write-CsvFile (Join-Path $OutDir 'latest-duplicates.csv') $dupHeaders $dupCsv
   Write-CsvFile (Join-Path $OutDir 'latest-errors.csv') $errHeaders $script:Errors
-  Write-CsvFile (Join-Path $OutDir ("sizetree-$stamp-folders.csv")) $folderHeaders $folderFlat
+  Write-CsvFile (Join-Path $OutDir ("disk-space-analysis-$stamp-folders.csv")) $folderHeaders $folderFlat
 }
 if ($writeHtml) {
   Write-HtmlFile (Join-Path $OutDir 'latest.html') $jsonText
-  Write-HtmlFile (Join-Path $OutDir ("sizetree-$stamp.html")) $jsonText
+  Write-HtmlFile (Join-Path $OutDir ("disk-space-analysis-$stamp.html")) $jsonText
 }
 
 Write-Note ("Done in {0:n1}s. Logical {1}. Files {2:n0}. Denied {3}. Reports in {4}" -f $watch.Elapsed.TotalSeconds, (Format-Byte ([int64]$root.LogicalBytes)), [int64]$root.FileCount, $script:Denied, (Resolve-Path $OutDir))
