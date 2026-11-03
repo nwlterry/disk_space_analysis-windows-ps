@@ -7,7 +7,8 @@
   Reads the folders.csv files written by Get-DiskAnalysis.ps1 (or disk-space-analysis.exe)
   and reports which folders grew, shrank, appeared, or disappeared.
   Parent totals include their children, so a new large file shows up on every
-  folder above it. Sort is by absolute change. Open compare.json in disk-space-analysis.
+  folder above it. Sort is by absolute change. compare.html opens the same
+  change screen as the web viewer: earlier, later, net change, then the bars.
 
 .PARAMETER EventLog
   Also write the summary to the Windows Application log. The source name is
@@ -93,6 +94,7 @@ function Read-FolderCsv([string]$FilePath) {
   if (-not (Test-Path -LiteralPath $FilePath)) { throw "File not found: $FilePath" }
   $map = @{}
   $rootBytes = [int64]0
+  $rootPath = ''
   $rootSet = $false
   foreach ($row in (Import-Csv -LiteralPath $FilePath)) {
     $path = [string]$row.path
@@ -108,10 +110,11 @@ function Read-FolderCsv([string]$FilePath) {
     }
     if ($depth -eq 0 -and (-not $rootSet -or $logical -gt $rootBytes)) {
       $rootBytes = $logical
+      $rootPath = $path
       $rootSet = $true
     }
   }
-  return @{ Map = $map; RootBytes = $rootBytes }
+  return @{ Map = $map; RootBytes = $rootBytes; RootPath = $rootPath }
 }
 
 function New-Change($Path, $Name, [int64]$BeforeBytes, [int64]$AfterBytes) {
@@ -131,6 +134,31 @@ function Take-Top($Rows, [int]$Limit) {
   if ($n -gt $Limit) { $n = $Limit }
   for ($i = 0; $i -lt $n; $i++) { [void]$list.Add($sorted[$i]) }
   return ,$list
+}
+
+function Get-StampDate([string]$FilePath) {
+  $name = [System.IO.Path]::GetFileName($FilePath)
+  if ($name -match '(\d{4})(\d{2})(\d{2})') { return $Matches[1] + '-' + $Matches[2] + '-' + $Matches[3] }
+  return (Get-Item -LiteralPath $FilePath).LastWriteTimeUtc.ToString('yyyy-MM-dd')
+}
+
+function Write-CompareHtml([string]$Target, [string]$Json) {
+  $templatePath = Join-Path $PSScriptRoot 'viewer.html'
+  $safe = $Json.Replace('<', '\u003c').Replace('>', '\u003e').Replace('&', '\u0026')
+  $embed = '<script id="disk-space-analysis-embed" type="application/json">' + $safe + '</script>'
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  $utf8Bom = New-Object System.Text.UTF8Encoding $true
+  if (Test-Path -LiteralPath $templatePath) {
+    $template = [System.IO.File]::ReadAllText($templatePath, $utf8)
+    if ($template.Contains('<!--DISK_SPACE_ANALYSIS_EMBED-->')) {
+      $html = $template.Replace('<!--DISK_SPACE_ANALYSIS_EMBED-->', $embed)
+    } else {
+      $html = $template
+    }
+  } else {
+    $html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>disk-space-analysis</title></head><body><p>viewer.html was not next to the script.</p>' + $embed + '</body></html>'
+  }
+  [System.IO.File]::WriteAllText($Target, $html, $utf8Bom)
 }
 
 $beforeSet = Read-FolderCsv $Before
@@ -171,11 +199,13 @@ $report = [ordered]@{
   version = '1.0'
   generatedAt = [datetime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
   before = [ordered]@{
-    label = [string](Resolve-Path -LiteralPath $Before)
+    label = $(if ($beforeSet.RootPath) { [string]$beforeSet.RootPath } else { [string](Resolve-Path -LiteralPath $Before) })
+    scannedAt = (Get-StampDate $Before)
     logicalBytes = [int64]$beforeSet.RootBytes
   }
   after = [ordered]@{
-    label = [string](Resolve-Path -LiteralPath $After)
+    label = $(if ($afterSet.RootPath) { [string]$afterSet.RootPath } else { [string](Resolve-Path -LiteralPath $After) })
+    scannedAt = (Get-StampDate $After)
     logicalBytes = [int64]$afterSet.RootBytes
   }
   grew = $grewTop
@@ -243,7 +273,9 @@ $sb = New-Object System.Text.StringBuilder
 Append-Json $sb $report
 $utf8 = New-Object System.Text.UTF8Encoding $false
 $jsonPath = Join-Path $OutDir 'compare.json'
+$htmlPath = Join-Path $OutDir 'compare.html'
 [System.IO.File]::WriteAllText($jsonPath, $sb.ToString(), $utf8)
+Write-CompareHtml $htmlPath $sb.ToString()
 
 function Write-ChangeCsv([string]$Target, $Rows) {
   $lines = New-Object System.Text.StringBuilder
@@ -264,7 +296,7 @@ Write-ChangeCsv (Join-Path $OutDir 'removed.csv') $removedTop
 
 $delta = [int64]$afterSet.RootBytes - [int64]$beforeSet.RootBytes
 Write-Note ("Net {0} bytes. Grew {1}, shrunk {2}, added {3}, removed {4}." -f $delta, $grewTop.Count, $shrunkTop.Count, $addedTop.Count, $removedTop.Count) -Event
-Write-Note ("Wrote {0}. Log {1}" -f $jsonPath, (Join-Path $OutDir 'disk-space-analysis.log')) -Event
+Write-Note ("Wrote {0} and {1}. Log {2}" -f $jsonPath, $htmlPath, (Join-Path $OutDir 'disk-space-analysis.log')) -Event
 } catch {
   Write-Note $_.Exception.Message -ErrorLine -Event
   exit 1
