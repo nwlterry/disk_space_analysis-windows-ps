@@ -374,7 +374,7 @@ function Update-Rollup($Root) {
 
 function Add-Depth($Node, [int]$Delta) {
   $Node.Depth = [int]$Node.Depth + $Delta
-  foreach ($next in @($Node.Children)) { Add-Depth $next $Delta }
+  foreach ($next in $Node.Children) { Add-Depth $next $Delta }
 }
 
 function Invoke-ScanRoot($Node, $Info) {
@@ -624,7 +624,7 @@ if ($Duplicates) {
           logicalBytes = $size
           count = [int64]$group.Count
           wasteBytes = $waste
-          paths = @($group)
+          paths = $group
         })
       }
     } else {
@@ -634,7 +634,7 @@ if ($Duplicates) {
         logicalBytes = $size
         count = [int64]$paths.Count
         wasteBytes = $waste
-        paths = @($paths)
+        paths = $paths
       })
     }
   }
@@ -652,7 +652,7 @@ foreach ($key in @($script:Ext.Keys)) {
     $extFiles = @( $extStored | Sort-Object { [int64]$_.logicalBytes } -Descending )
   }
   $extList = New-Object System.Collections.Generic.List[object]
-  foreach ($file in @($extFiles)) { if ($null -ne $file) { [void]$extList.Add($file) } }
+  foreach ($file in $extFiles) { if ($null -ne $file) { [void]$extList.Add($file) } }
   [void]$extRows.Add([ordered]@{
     extension = [string]$key
     fileCount = [int64]$row.fileCount
@@ -672,7 +672,7 @@ foreach ($bucket in $ageOrder) {
     $ageFiles = @( $ageStored | Sort-Object { [int64]$_.logicalBytes } -Descending )
   }
   $ageList = New-Object System.Collections.Generic.List[object]
-  foreach ($file in @($ageFiles)) { if ($null -ne $file) { [void]$ageList.Add($file) } }
+  foreach ($file in $ageFiles) { if ($null -ne $file) { [void]$ageList.Add($file) } }
   $ageMap = $script:Age -as [System.Collections.IDictionary]
   if ($null -ne $ageMap -and $ageMap.Contains([string]$bucket)) {
     $row = $ageMap[[string]$bucket]
@@ -755,7 +755,7 @@ $report = [ordered]@{
   scannedAt = [datetime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
   host = [string]$env:COMPUTERNAME
   root = [string]$root.Path
-  roots = @($fullPaths)
+  roots = $fullPaths
   elapsedMs = [int64]$watch.ElapsedMilliseconds
   summary = [ordered]@{
     logicalBytes = [int64]$root.LogicalBytes
@@ -850,6 +850,14 @@ function ConvertTo-CsvCell($Value) {
   return $text
 }
 
+function Join-List($Value, [string]$Separator) {
+  if ($null -eq $Value) { return '' }
+  if ($Value -is [string]) { return $Value }
+  $parts = New-Object System.Collections.Generic.List[string]
+  foreach ($one in $Value) { if ($null -ne $one) { [void]$parts.Add([string]$one) } }
+  return [string]::Join($Separator, $parts.ToArray())
+}
+
 function Write-CsvFile([string]$Target, [string[]]$Headers, $Rows) {
   $sb = New-Object System.Text.StringBuilder
   [void]$sb.AppendLine(($Headers -join ','))
@@ -934,7 +942,7 @@ if ($writeCsv) {
   $extFileHeaders = @('extension', 'path', 'name', 'logicalBytes', 'allocatedBytes', 'modifiedUtc')
   $extFileRows = New-Object System.Collections.Generic.List[object]
   foreach ($row in $extSorted) {
-    foreach ($file in @($row.files)) {
+    foreach ($file in $row.files) {
       [void]$extFileRows.Add([ordered]@{
         extension = [string]$row.extension
         path = [string]$file.path
@@ -949,7 +957,7 @@ if ($writeCsv) {
   $ageFileHeaders = @('bucket', 'path', 'name', 'extension', 'logicalBytes', 'allocatedBytes', 'modifiedUtc')
   $ageFileRows = New-Object System.Collections.Generic.List[object]
   foreach ($row in $ageRows) {
-    foreach ($file in @($row.files)) {
+    foreach ($file in $row.files) {
       [void]$ageFileRows.Add([ordered]@{
         bucket = [string]$row.bucket
         path = [string]$file.path
@@ -973,7 +981,7 @@ if ($writeCsv) {
       logicalBytes = [int64]$row.logicalBytes
       count = [int64]$row.count
       wasteBytes = [int64]$row.wasteBytes
-      paths = ((@($row.paths)) -join '|')
+      paths = (Join-List $row.paths '|')
     })
   }
   Write-StampedCsv 'folders' $folderHeaders $folderFlat
