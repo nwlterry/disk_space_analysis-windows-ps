@@ -649,14 +649,16 @@ foreach ($key in @($script:Ext.Keys)) {
   $extFiles = @()
   $extStored = Get-MapValue $script:ExtFiles ([string]$key)
   if ($null -ne $extStored) {
-    $extFiles = @($extStored | Sort-Object { [int64]$_.logicalBytes } -Descending)
+    $extFiles = @( $extStored | Sort-Object { [int64]$_.logicalBytes } -Descending )
   }
+  $extList = New-Object System.Collections.Generic.List[object]
+  foreach ($file in @($extFiles)) { if ($null -ne $file) { [void]$extList.Add($file) } }
   [void]$extRows.Add([ordered]@{
     extension = [string]$key
     fileCount = [int64]$row.fileCount
     logicalBytes = [int64]$row.logicalBytes
     allocatedBytes = [int64]$row.allocatedBytes
-    files = $extFiles
+    files = $extList
   })
 }
 $extSorted = @($extRows | Sort-Object { [int64]$_.logicalBytes } -Descending)
@@ -667,8 +669,10 @@ foreach ($bucket in $ageOrder) {
   $ageFiles = @()
   $ageStored = Get-MapValue $script:AgeFiles ([string]$bucket)
   if ($null -ne $ageStored) {
-    $ageFiles = @($ageStored | Sort-Object { [int64]$_.logicalBytes } -Descending)
+    $ageFiles = @( $ageStored | Sort-Object { [int64]$_.logicalBytes } -Descending )
   }
+  $ageList = New-Object System.Collections.Generic.List[object]
+  foreach ($file in @($ageFiles)) { if ($null -ne $file) { [void]$ageList.Add($file) } }
   $ageMap = $script:Age -as [System.Collections.IDictionary]
   if ($null -ne $ageMap -and $ageMap.Contains([string]$bucket)) {
     $row = $ageMap[[string]$bucket]
@@ -677,7 +681,7 @@ foreach ($bucket in $ageOrder) {
       fileCount = [int64]$row.fileCount
       logicalBytes = [int64]$row.logicalBytes
       allocatedBytes = [int64]$row.allocatedBytes
-      files = $ageFiles
+      files = $ageList
     })
   } else {
     [void]$ageRows.Add([ordered]@{
@@ -685,7 +689,7 @@ foreach ($bucket in $ageOrder) {
       fileCount = [int64]0
       logicalBytes = [int64]0
       allocatedBytes = [int64]0
-      files = $ageFiles
+      files = $ageList
     })
   }
 }
@@ -889,8 +893,10 @@ function Write-HtmlFile([string]$Target, [string]$Json) {
   $templatePath = Join-Path $PSScriptRoot 'viewer.html'
   $safe = $Json.Replace('<', '\u003c').Replace('>', '\u003e').Replace('&', '\u0026')
   $embed = '<script id="disk-space-analysis-embed" type="application/json">' + $safe + '</script>'
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  $utf8Bom = New-Object System.Text.UTF8Encoding $true
   if (Test-Path -LiteralPath $templatePath) {
-    $template = [System.IO.File]::ReadAllText($templatePath)
+    $template = [System.IO.File]::ReadAllText($templatePath, $utf8)
     if ($template.Contains('<!--DISK_SPACE_ANALYSIS_EMBED-->')) {
       $html = $template.Replace('<!--DISK_SPACE_ANALYSIS_EMBED-->', $embed)
     } else {
@@ -899,8 +905,7 @@ function Write-HtmlFile([string]$Target, [string]$Json) {
   } else {
     $html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>disk-space-analysis</title></head><body><p>viewer.html was not next to the script.</p>' + $embed + '</body></html>'
   }
-  $utf8 = New-Object System.Text.UTF8Encoding $false
-  [System.IO.File]::WriteAllText($Target, $html, $utf8)
+  [System.IO.File]::WriteAllText($Target, $html, $utf8Bom)
 }
 
 [void][System.IO.Directory]::CreateDirectory($OutDir)
