@@ -142,23 +142,89 @@ function Get-StampDate([string]$FilePath) {
   return (Get-Item -LiteralPath $FilePath).LastWriteTimeUtc.ToString('yyyy-MM-dd')
 }
 
-function Write-CompareHtml([string]$Target, [string]$Json) {
-  $templatePath = Join-Path $PSScriptRoot 'viewer.html'
-  $safe = $Json.Replace('<', '\u003c').Replace('>', '\u003e').Replace('&', '\u0026')
-  $embed = '<script id="disk-space-analysis-embed" type="application/json">' + $safe + '</script>'
-  $utf8 = New-Object System.Text.UTF8Encoding $false
-  $utf8Bom = New-Object System.Text.UTF8Encoding $true
-  if (Test-Path -LiteralPath $templatePath) {
-    $template = [System.IO.File]::ReadAllText($templatePath, $utf8)
-    if ($template.Contains('<!--DISK_SPACE_ANALYSIS_EMBED-->')) {
-      $html = $template.Replace('<!--DISK_SPACE_ANALYSIS_EMBED-->', $embed)
-    } else {
-      $html = $template
-    }
-  } else {
-    $html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>disk-space-analysis</title></head><body><p>viewer.html was not next to the script.</p>' + $embed + '</body></html>'
+function Format-Byte([int64]$Number) {
+  $sign = ''
+  $value = [double]$Number
+  if ($Number -lt 0) { $sign = '-'; $value = [double](-$Number) }
+  $units = @('B', 'KB', 'MB', 'GB', 'TB', 'PB')
+  $index = 0
+  while ($value -ge 1024 -and $index -lt ($units.Length - 1)) { $value = $value / 1024; $index++ }
+  $digits = 0
+  if ($index -gt 0) {
+    if ($value -ge 100) { $digits = 0 } elseif ($value -ge 10) { $digits = 1 } else { $digits = 2 }
   }
-  [System.IO.File]::WriteAllText($Target, $html, $utf8Bom)
+  return $sign + $value.ToString(('F' + $digits), [System.Globalization.CultureInfo]::InvariantCulture) + ' ' + $units[$index]
+}
+
+function Format-Signed([int64]$Number) {
+  if ($Number -gt 0) { return '+' + (Format-Byte $Number) }
+  return Format-Byte $Number
+}
+
+function Escape-Html([string]$Text) {
+  if ([string]::IsNullOrEmpty($Text)) { return '' }
+  $amp = ([char]38) + 'amp;'
+  $lt = ([char]38) + 'lt;'
+  $gt = ([char]38) + 'gt;'
+  $quot = ([char]38) + 'quot;'
+  return $Text.Replace(([char]38).ToString(), $amp).Replace('<', $lt).Replace('>', $gt).Replace('"', $quot)
+}
+
+function Add-ChangeSection([System.Text.StringBuilder]$Sb, [string]$Title, $Rows, [bool]$Grew) {
+  [void]$Sb.Append('<section class="chg"><h2>' + (Escape-Html $Title) + '</h2>')
+  $items = @($Rows)
+  if ($items.Count -eq 0 -or $null -eq $Rows) {
+    [void]$Sb.Append('<p class="hint">None.</p></section>')
+    return
+  }
+  $max = [int64]1
+  foreach ($row in $items) {
+    $size = [int64][Math]::Abs([int64]$row.deltaBytes)
+    if ($size -gt $max) { $max = $size }
+  }
+  $tone = 'down'
+  if ($Grew) { $tone = 'up' }
+  foreach ($row in $items) {
+    $delta = [int64]$row.deltaBytes
+    $width = [int64]([Math]::Abs($delta) * 100 / $max)
+    if ($width -lt 2) { $width = 2 }
+    [void]$Sb.Append('<div style="margin-bottom:14px"><div class="row"><span class="path" title="' + (Escape-Html ([string]$row.path)) + '">' + (Escape-Html ([string]$row.path)) + '</span><span class="mono ' + $tone + '">' + (Escape-Html (Format-Signed $delta)) + '</span></div>')
+    [void]$Sb.Append('<div class="bar"><i class="' + $tone + '" style="width:' + $width + '%"></i></div><div class="hint mono">' + (Escape-Html (Format-Byte ([int64]$row.beforeBytes))) + ' &#8594; ' + (Escape-Html (Format-Byte ([int64]$row.afterBytes))) + '</div></div>')
+  }
+  [void]$Sb.Append('</section>')
+}
+
+function Write-CompareHtml([string]$Target, $Report) {
+  $before = $Report.before
+  $after = $Report.after
+  $delta = [int64]$after.logicalBytes - [int64]$before.logicalBytes
+  $netHint = 'Volume shrank'
+  if ($delta -ge 0) { $netHint = 'Volume grew' }
+  $sb = New-Object System.Text.StringBuilder
+  [void]$sb.Append('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>disk-space-analysis compare</title><style>')
+  [void]$sb.Append(':root{--bg:#10120e;--surface:#1a1d17;--surface2:#23281f;--line:#34392e;--fg:#ebe7dc;--muted:#a39e91;--faint:#746f64;--danger:#d4654a}')
+  [void]$sb.Append('*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 Segoe UI,sans-serif}.wrap{max-width:80rem;margin:0 auto;padding:16px}')
+  [void]$sb.Append('.kicker{font-family:Consolas,monospace;font-size:12px;letter-spacing:.04em;color:#e0a23a;margin:0}h1{font-size:22px;font-weight:500;margin:2px 0 16px}')
+  [void]$sb.Append('.stats{display:grid;grid-template-columns:1fr;gap:8px}@media(min-width:800px){.stats{grid-template-columns:repeat(3,minmax(0,1fr))}}')
+  [void]$sb.Append('.stat{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:12px;min-width:0}.stat b{display:block;margin-top:4px;font-family:Consolas,monospace;font-size:18px;font-weight:500}.stat span,.hint{color:var(--faint);font-size:12px}.hint{color:var(--muted)}')
+  [void]$sb.Append('.chg{margin-top:22px}.chg h2{font-size:16px;font-weight:500;margin:0 0 10px}.row{display:flex;justify-content:space-between;gap:12px}.path{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}')
+  [void]$sb.Append('.mono{font-family:Consolas,monospace}.up{color:var(--danger)}.down{color:#8aa56e}.bar{height:8px;background:var(--surface2);border-radius:99px;overflow:hidden;margin-top:4px}.bar i{display:block;height:100%}.bar i.up{background:var(--danger)}.bar i.down{background:#8aa56e}')
+  [void]$sb.Append('</style></head><body><div class="wrap"><p class="kicker">DISK-SPACE-ANALYSIS</p><h1>Disk space analysis</h1><div class="stats">')
+  foreach ($card in @(
+      @{ label = 'Earlier'; value = (Format-Byte ([int64]$before.logicalBytes)); hint = (([string]$before.label) + $(if ($before.scannedAt) { ' | ' + $before.scannedAt } else { '' })) },
+      @{ label = 'Later'; value = (Format-Byte ([int64]$after.logicalBytes)); hint = (([string]$after.label) + $(if ($after.scannedAt) { ' | ' + $after.scannedAt } else { '' })) },
+      @{ label = 'Net change'; value = (Format-Signed $delta); hint = $netHint }
+    )) {
+    [void]$sb.Append('<div class="stat"><span>' + (Escape-Html $card.label) + '</span><b>' + (Escape-Html $card.value) + '</b><div class="hint">' + (Escape-Html $card.hint) + '</div></div>')
+  }
+  [void]$sb.Append('</div>')
+  Add-ChangeSection $sb 'Grew' $Report.grew $true
+  Add-ChangeSection $sb 'Shrank' $Report.shrunk $false
+  Add-ChangeSection $sb 'Added' $Report.added $true
+  Add-ChangeSection $sb 'Removed' $Report.removed $false
+  [void]$sb.Append('</div></body></html>')
+  $utf8Bom = New-Object System.Text.UTF8Encoding $true
+  [System.IO.File]::WriteAllText($Target, $sb.ToString(), $utf8Bom)
 }
 
 $beforeSet = Read-FolderCsv $Before
@@ -275,7 +341,7 @@ $utf8 = New-Object System.Text.UTF8Encoding $false
 $jsonPath = Join-Path $OutDir 'compare.json'
 $htmlPath = Join-Path $OutDir 'compare.html'
 [System.IO.File]::WriteAllText($jsonPath, $sb.ToString(), $utf8)
-Write-CompareHtml $htmlPath $sb.ToString()
+Write-CompareHtml $htmlPath $report
 
 function Write-ChangeCsv([string]$Target, $Rows) {
   $lines = New-Object System.Text.StringBuilder
