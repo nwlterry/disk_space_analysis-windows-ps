@@ -68,6 +68,9 @@ $script:Age = @{}
 $script:AgeFiles = @{}
 $script:AgeFileMin = @{}
 $script:AgeFileCap = 40
+$script:ExtFiles = @{}
+$script:ExtFileMin = @{}
+$script:ExtFileCap = 40
 $script:LargeFiles = New-Object System.Collections.Generic.List[object]
 $script:TopMin = [int64]-1
 $script:Dup = @{}
@@ -131,25 +134,25 @@ function Update-TopMin {
   $script:TopMin = $min
 }
 
-function Add-AgeFile([string]$Bucket, $FileRow) {
-  if (-not $script:AgeFiles.ContainsKey($Bucket)) {
-    $script:AgeFiles[$Bucket] = New-Object System.Collections.Generic.List[object]
-    $script:AgeFileMin[$Bucket] = [int64]-1
+function Add-CappedFile($Bag, $Mins, [int]$Cap, [string]$Key, $FileRow) {
+  if (-not $Bag.ContainsKey($Key)) {
+    $Bag[$Key] = New-Object System.Collections.Generic.List[object]
+    $Mins[$Key] = [int64]-1
   }
-  $list = $script:AgeFiles[$Bucket]
+  $list = $Bag[$Key]
   $size = [int64]$FileRow.logicalBytes
-  if ($list.Count -lt $script:AgeFileCap) {
+  if ($list.Count -lt $Cap) {
     [void]$list.Add($FileRow)
-    if ($list.Count -eq $script:AgeFileCap) {
+    if ($list.Count -eq $Cap) {
       $min = [int64]$list[0].logicalBytes
       for ($i = 1; $i -lt $list.Count; $i++) {
         if ([int64]$list[$i].logicalBytes -lt $min) { $min = [int64]$list[$i].logicalBytes }
       }
-      $script:AgeFileMin[$Bucket] = $min
+      $Mins[$Key] = $min
     }
     return
   }
-  if ($size -le [int64]$script:AgeFileMin[$Bucket]) { return }
+  if ($size -le [int64]$Mins[$Key]) { return }
   $minIdx = 0
   $minVal = [int64]$list[0].logicalBytes
   for ($i = 1; $i -lt $list.Count; $i++) {
@@ -162,7 +165,15 @@ function Add-AgeFile([string]$Bucket, $FileRow) {
   for ($i = 1; $i -lt $list.Count; $i++) {
     if ([int64]$list[$i].logicalBytes -lt $min) { $min = [int64]$list[$i].logicalBytes }
   }
-  $script:AgeFileMin[$Bucket] = $min
+  $Mins[$Key] = $min
+}
+
+function Add-AgeFile([string]$Bucket, $FileRow) {
+  Add-CappedFile $script:AgeFiles $script:AgeFileMin $script:AgeFileCap $Bucket $FileRow
+}
+
+function Add-ExtFile([string]$Extension, $FileRow) {
+  Add-CappedFile $script:ExtFiles $script:ExtFileMin $script:ExtFileCap $Extension $FileRow
 }
 
 function Add-LargeFile($FileRow) {
@@ -344,6 +355,7 @@ while ($stack.Count -gt 0) {
           }
           Add-LargeFile $fileRow
           if ($bucket) { Add-AgeFile $bucket $fileRow }
+          Add-ExtFile $ext $fileRow
         }
         if ($Duplicates -and $logical -ge $DuplicateMinBytes) {
           $key = [string]$logical
@@ -552,11 +564,16 @@ foreach ($row in $duplicateRows) { $duplicateWaste += [int64]$row.wasteBytes }
 $extRows = New-Object System.Collections.Generic.List[object]
 foreach ($key in @($script:Ext.Keys)) {
   $row = $script:Ext[$key]
+  $extFiles = @()
+  if ($script:ExtFiles.ContainsKey([string]$key)) {
+    $extFiles = @($script:ExtFiles[[string]$key] | Sort-Object { [int64]$_.logicalBytes } -Descending)
+  }
   [void]$extRows.Add([ordered]@{
     extension = [string]$key
     fileCount = [int64]$row.fileCount
     logicalBytes = [int64]$row.logicalBytes
     allocatedBytes = [int64]$row.allocatedBytes
+    files = $extFiles
   })
 }
 $extSorted = @($extRows | Sort-Object { [int64]$_.logicalBytes } -Descending)
@@ -819,6 +836,20 @@ if ($writeCsv) {
   $folderHeaders = @('path', 'name', 'logicalBytes', 'allocatedBytes', 'fileCount', 'folderCount', 'depth')
   $fileHeaders = @('path', 'name', 'extension', 'logicalBytes', 'allocatedBytes', 'modifiedUtc')
   $extHeaders = @('extension', 'fileCount', 'logicalBytes', 'allocatedBytes')
+  $extFileHeaders = @('extension', 'path', 'name', 'logicalBytes', 'allocatedBytes', 'modifiedUtc')
+  $extFileRows = New-Object System.Collections.Generic.List[object]
+  foreach ($row in $extSorted) {
+    foreach ($file in @($row.files)) {
+      [void]$extFileRows.Add([ordered]@{
+        extension = [string]$row.extension
+        path = [string]$file.path
+        name = [string]$file.name
+        logicalBytes = [int64]$file.logicalBytes
+        allocatedBytes = [int64]$file.allocatedBytes
+        modifiedUtc = [string]$file.modifiedUtc
+      })
+    }
+  }
   $ageHeaders = @('bucket', 'fileCount', 'logicalBytes', 'allocatedBytes')
   $ageFileHeaders = @('bucket', 'path', 'name', 'extension', 'logicalBytes', 'allocatedBytes', 'modifiedUtc')
   $ageFileRows = New-Object System.Collections.Generic.List[object]
@@ -853,6 +884,7 @@ if ($writeCsv) {
   Write-CsvFile (Join-Path $OutDir 'latest-folders.csv') $folderHeaders $folderFlat
   Write-CsvFile (Join-Path $OutDir 'latest-files.csv') $fileHeaders $filesSorted
   Write-CsvFile (Join-Path $OutDir 'latest-extensions.csv') $extHeaders $extSorted
+  Write-CsvFile (Join-Path $OutDir 'latest-extension-files.csv') $extFileHeaders $extFileRows
   Write-CsvFile (Join-Path $OutDir 'latest-ages.csv') $ageHeaders $ageRows
   Write-CsvFile (Join-Path $OutDir 'latest-age-files.csv') $ageFileHeaders $ageFileRows
   Write-CsvFile (Join-Path $OutDir 'latest-duplicates.csv') $dupHeaders $dupCsv

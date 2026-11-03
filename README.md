@@ -14,6 +14,8 @@ Same job as Tree Size: folder tree, largest files, file types, age, duplicates, 
 
 Each age group includes up to 40 of the largest files in that age. Click the age to list them. The full list of those files is also `latest-age-files.csv`.
 
+Each file type keeps up to 40 of its largest files. Click the type to list them. Those rows are also `latest-extension-files.csv`.
+
 ## Scan
 
 ```powershell
