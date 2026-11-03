@@ -26,8 +26,16 @@
   How deep the JSON folder tree nests. Deeper folders stay in the totals
   and in folders.csv, but are not expandable in the viewer.
 
+.PARAMETER EventLog
+  Also write the start, errors, and the summary to the Windows Application log.
+  The source name is disk-space-analysis. The first run must be elevated so
+  Windows can register that source. The log file is written either way.
+
+.PARAMETER Quiet
+  Hide console progress. The log file in the report folder is still written.
+
 .EXAMPLE
-  .\Get-DiskAnalysis.ps1 -Path D:\,E:\ -OutDir C:\disk-space-analysis-reports -Duplicates -HashDuplicates -AllocatedSize
+  .\Get-DiskAnalysis.ps1 -Path D:\,E:\ -OutDir C:\disk-space-analysis-reports -Duplicates -HashDuplicates -AllocatedSize -EventLog
 #>
 [CmdletBinding()]
 param(
@@ -46,6 +54,7 @@ param(
   [string[]]$Exclude = @(),
   [ValidateSet('All', 'Json', 'Csv', 'Html')]
   [string]$Format = 'All',
+  [switch]$EventLog,
   [switch]$Quiet
 )
 
@@ -75,8 +84,62 @@ $script:LargeFiles = New-Object System.Collections.Generic.List[object]
 $script:TopMin = [int64]-1
 $script:Dup = @{}
 
-function Write-Note([string]$Message) {
-  if (-not $Quiet) { Write-Host $Message }
+$script:LogWriter = $null
+$script:EventReady = $false
+
+function Format-LogText([string]$Message) {
+  $text = $Message -replace '[\r\n]+', ' '
+  if ($null -eq $text) { return '' }
+  return $text
+}
+
+function Write-EventNote([string]$Message, [bool]$IsError) {
+  if (-not $script:EventReady) { return }
+  $text = Format-LogText $Message
+  if ($text.Length -gt 30000) { $text = $text.Substring(0, 30000) }
+  $type = [System.Diagnostics.EventLogEntryType]::Information
+  $id = 1001
+  if ($IsError) {
+    $type = [System.Diagnostics.EventLogEntryType]::Warning
+    $id = 2000
+  }
+  try {
+    $log = New-Object System.Diagnostics.EventLog 'Application'
+    $log.Source = 'disk-space-analysis'
+    $log.WriteEntry($text, $type, $id)
+  } catch {
+    $script:EventReady = $false
+  }
+}
+
+function Write-Note([string]$Message, [switch]$ErrorLine, [switch]$Event) {
+  $line = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '  ' + (Format-LogText $Message)
+  if (-not $Quiet -or $ErrorLine) { Write-Host $line }
+  if ($null -ne $script:LogWriter) { $script:LogWriter.WriteLine($line) }
+  if ($Event) { Write-EventNote $Message ([bool]$ErrorLine) }
+}
+
+function Initialize-RunLog {
+  [void][System.IO.Directory]::CreateDirectory($OutDir)
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  $script:LogWriter = New-Object System.IO.StreamWriter ((Join-Path $OutDir 'disk-space-analysis.log'), $true, $utf8)
+  $script:LogWriter.AutoFlush = $true
+  if (-not $EventLog) { return }
+  try {
+    $source = 'disk-space-analysis'
+    if (-not [System.Diagnostics.EventLog]::SourceExists($source)) {
+      [System.Diagnostics.EventLog]::CreateEventSource($source, 'Application')
+    }
+    $script:EventReady = $true
+  } catch {
+    Write-Note ("Windows event log is not available: " + $_.Exception.Message) -ErrorLine
+  }
+}
+
+function Close-RunLog {
+  if ($null -eq $script:LogWriter) { return }
+  $script:LogWriter.Dispose()
+  $script:LogWriter = $null
 }
 
 function Add-ScanError([string]$ItemPath, [string]$Message, [string]$Kind) {
@@ -408,30 +471,33 @@ foreach ($item in @($Path)) {
     if ($piece) { [void]$targets.Add($piece) }
   }
 }
+Initialize-RunLog
+try {
 if ($targets.Count -lt 1) {
-  Write-Host "Path is required."
+  Write-Note "Path is required." -ErrorLine -Event
   exit 2
 }
 
 $watch = [System.Diagnostics.Stopwatch]::StartNew()
+Write-Note ("Started scan. Output {0}" -f $OutDir) -Event
 $scanned = New-Object System.Collections.Generic.List[object]
 $fullPaths = New-Object System.Collections.Generic.List[string]
 foreach ($target in $targets) {
   try {
     $fullRoot = [System.IO.Path]::GetFullPath($target)
   } catch {
-    Write-Host "Path is not valid: $target"
+    Write-Note "Path is not valid: $target" -ErrorLine -Event
     exit 2
   }
   $probe = New-Object System.IO.DirectoryInfo $fullRoot
   if (-not $probe.Exists) {
-    Write-Host "Path not found or not a directory: $fullRoot"
+    Write-Note "Path not found or not a directory: $fullRoot" -ErrorLine -Event
     exit 2
   }
   $rootName = $fullRoot
   if ($fullRoot.Length -gt 3) { $rootName = $probe.Name }
   $scannedRoot = New-Folder $rootName $fullRoot 0
-  Write-Note "Scanning $fullRoot"
+  Write-Note "Scanning $fullRoot" -Event
   Invoke-ScanRoot $scannedRoot $probe
   [void]$scanned.Add($scannedRoot)
   [void]$fullPaths.Add($fullRoot)
@@ -448,7 +514,7 @@ if ($scanned.Count -eq 1) {
   }
 }
 
-Write-Note "Rolling up folder sizes..."
+Write-Note "Rolling up folder sizes..." -Event
 Update-Rollup $root
 $watch.Stop()
 
@@ -896,6 +962,9 @@ if ($writeHtml) {
   Write-HtmlFile (Join-Path $OutDir ("disk-space-analysis-$stamp.html")) $jsonText
 }
 
-Write-Note ("Done in {0:n1}s. Logical {1}. Files {2:n0}. Denied {3}. Reports in {4}" -f $watch.Elapsed.TotalSeconds, (Format-Byte ([int64]$root.LogicalBytes)), [int64]$root.FileCount, $script:Denied, (Resolve-Path $OutDir))
-if ($Depth -gt 0) { Write-Note "Depth limit $Depth was set. Totals exclude anything deeper." }
+Write-Note ("Done in {0:n1}s. Logical {1}. Files {2:n0}. Denied {3}. Reports in {4}. Log {5}" -f $watch.Elapsed.TotalSeconds, (Format-Byte ([int64]$root.LogicalBytes)), [int64]$root.FileCount, $script:Denied, (Resolve-Path $OutDir), (Join-Path $OutDir 'disk-space-analysis.log')) -Event
+if ($Depth -gt 0) { Write-Note "Depth limit $Depth was set. Totals exclude anything deeper." -Event }
+} finally {
+  Close-RunLog
+}
 exit 0

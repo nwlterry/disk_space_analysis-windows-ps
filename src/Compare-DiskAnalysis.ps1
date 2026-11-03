@@ -9,8 +9,13 @@
   Parent totals include their children, so a new large file shows up on every
   folder above it. Sort is by absolute change. Open compare.json in disk-space-analysis.
 
+.PARAMETER EventLog
+  Also write the summary to the Windows Application log. The source name is
+  disk-space-analysis. The first run must be elevated so Windows can register
+  that source.
+
 .EXAMPLE
-  .\Compare-DiskAnalysis.ps1 -Before C:\disk-space-analysis-reports\disk-space-analysis-20261006-folders.csv -After C:\disk-space-analysis-reports\latest-folders.csv -OutDir C:\disk-space-analysis-reports\compare
+  .\Compare-DiskAnalysis.ps1 -Before C:\disk-space-analysis-reports\disk-space-analysis-20261006-folders.csv -After C:\disk-space-analysis-reports\latest-folders.csv -OutDir C:\disk-space-analysis-reports\compare -EventLog
 #>
 [CmdletBinding()]
 param(
@@ -20,13 +25,69 @@ param(
   [string]$After,
   [string]$OutDir = '.\disk-space-analysis-compare',
   [int]$Top = 100,
-  [long]$MinDeltaBytes = 1MB
+  [long]$MinDeltaBytes = 1MB,
+  [switch]$EventLog
 )
 
 Set-StrictMode -Version 2
 $ErrorActionPreference = 'Stop'
 if ($Top -lt 1) { $Top = 1 }
 if ($MinDeltaBytes -lt 0) { $MinDeltaBytes = 0 }
+
+$script:LogWriter = $null
+$script:EventReady = $false
+
+function Format-LogText([string]$Message) {
+  $text = $Message -replace '[\r\n]+', ' '
+  if ($null -eq $text) { return '' }
+  return $text
+}
+
+function Write-EventNote([string]$Message, [bool]$IsError) {
+  if (-not $script:EventReady) { return }
+  $text = Format-LogText $Message
+  if ($text.Length -gt 30000) { $text = $text.Substring(0, 30000) }
+  $type = [System.Diagnostics.EventLogEntryType]::Information
+  $id = 1001
+  if ($IsError) {
+    $type = [System.Diagnostics.EventLogEntryType]::Warning
+    $id = 2000
+  }
+  try {
+    $log = New-Object System.Diagnostics.EventLog 'Application'
+    $log.Source = 'disk-space-analysis'
+    $log.WriteEntry($text, $type, $id)
+  } catch {
+    $script:EventReady = $false
+  }
+}
+
+function Write-Note([string]$Message, [switch]$ErrorLine, [switch]$Event) {
+  $line = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '  ' + (Format-LogText $Message)
+  Write-Host $line
+  if ($null -ne $script:LogWriter) { $script:LogWriter.WriteLine($line) }
+  if ($Event) { Write-EventNote $Message ([bool]$ErrorLine) }
+}
+
+function Initialize-RunLog {
+  [void][System.IO.Directory]::CreateDirectory($OutDir)
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  $script:LogWriter = New-Object System.IO.StreamWriter ((Join-Path $OutDir 'disk-space-analysis.log'), $true, $utf8)
+  $script:LogWriter.AutoFlush = $true
+  if (-not $EventLog) { return }
+  try {
+    $source = 'disk-space-analysis'
+    if (-not [System.Diagnostics.EventLog]::SourceExists($source)) {
+      [System.Diagnostics.EventLog]::CreateEventSource($source, 'Application')
+    }
+    $script:EventReady = $true
+  } catch {
+    Write-Note ("Windows event log is not available: " + $_.Exception.Message) -ErrorLine
+  }
+}
+
+Initialize-RunLog
+try {
 
 function Read-FolderCsv([string]$FilePath) {
   if (-not (Test-Path -LiteralPath $FilePath)) { throw "File not found: $FilePath" }
@@ -199,6 +260,15 @@ Write-ChangeCsv (Join-Path $OutDir 'added.csv') $addedTop
 Write-ChangeCsv (Join-Path $OutDir 'removed.csv') $removedTop
 
 $delta = [int64]$afterSet.RootBytes - [int64]$beforeSet.RootBytes
-Write-Host ("Net {0} bytes. Grew {1}, shrunk {2}, added {3}, removed {4}." -f $delta, $grewTop.Count, $shrunkTop.Count, $addedTop.Count, $removedTop.Count)
-Write-Host "Wrote $jsonPath"
+Write-Note ("Net {0} bytes. Grew {1}, shrunk {2}, added {3}, removed {4}." -f $delta, $grewTop.Count, $shrunkTop.Count, $addedTop.Count, $removedTop.Count) -Event
+Write-Note ("Wrote {0}. Log {1}" -f $jsonPath, (Join-Path $OutDir 'disk-space-analysis.log')) -Event
+} catch {
+  Write-Note $_.Exception.Message -ErrorLine -Event
+  exit 1
+} finally {
+  if ($null -ne $script:LogWriter) {
+    $script:LogWriter.Dispose()
+    $script:LogWriter = $null
+  }
+}
 exit 0

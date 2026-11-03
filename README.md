@@ -58,3 +58,9 @@ Exclude a name or wildcard:
 ```powershell
 .\src\Get-DiskAnalysis.ps1 -Path D:\Shares -Exclude node_modules,*.tmp
 ```
+
+## Log
+
+Each run prints `yyyy-MM-dd HH:mm:ss` on every console line and appends the same lines to `disk-space-analysis.log` in the report folder.
+
+PowerShell: `-EventLog`. .NET: `--event-log`. That also writes the start, errors, and the summary to the Windows Application log. The source name is `disk-space-analysis`. The first use must run elevated so Windows can register the source. `-Quiet` / `--quiet` hides console progress. The log file is still written. The periodic file-count lines stay in the console and the log file, not the event log.
