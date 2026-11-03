@@ -4,15 +4,17 @@
   SizeTree disk analysis for Windows Server 2016 and later (Windows PowerShell 5.1).
 
 .DESCRIPTION
-  Scans a folder, volume, or UNC path and writes a Tree Size style report:
+  Scans one or more folders, volumes, or UNC paths and writes a Tree Size style report:
   folder tree, largest files, extension mix, age, optional duplicates, and
-  access errors. Open latest.json in the SizeTree viewer.
+  access errors. Open latest.json in the SizeTree viewer, or double-click
+  latest.html for the same screen offline.
 
   Junctions and symlinks are not followed. -AllocatedSize reads NTFS
   allocation (compression and sparse files included) and is slower.
 
 .PARAMETER Path
-  Directory to scan. Local path or UNC.
+  One or more directories. Local paths or UNC. Separate with commas:
+  -Path D:\,E:\Shares
 
 .PARAMETER OutDir
   Report folder. Stamped copies plus latest.* files are written here.
@@ -25,12 +27,12 @@
   and in folders.csv, but are not expandable in the viewer.
 
 .EXAMPLE
-  .\Get-DiskAnalysis.ps1 -Path D:\ -OutDir C:\SizeTreeReports -Duplicates -HashDuplicates -AllocatedSize
+  .\Get-DiskAnalysis.ps1 -Path D:\,E:\ -OutDir C:\SizeTreeReports -Duplicates -HashDuplicates -AllocatedSize
 #>
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true, Position = 0)]
-  [string]$Path,
+  [string[]]$Path,
   [string]$OutDir = '.\SizeTreeReports',
   [int]$TopFiles = 200,
   [int]$TopFolders = 500,
@@ -296,26 +298,14 @@ function Update-Rollup($Root) {
   }
 }
 
-try {
-  $fullRoot = [System.IO.Path]::GetFullPath($Path)
-} catch {
-  Write-Host "Path is not valid: $Path"
-  exit 2
-}
-$probe = New-Object System.IO.DirectoryInfo $fullRoot
-if (-not $probe.Exists) {
-  Write-Host "Path not found or not a directory: $fullRoot"
-  exit 2
+function Add-Depth($Node, [int]$Delta) {
+  $Node.Depth = [int]$Node.Depth + $Delta
+  foreach ($next in @($Node.Children)) { Add-Depth $next $Delta }
 }
 
-$rootName = $fullRoot
-if ($fullRoot.Length -gt 3) { $rootName = $probe.Name }
-$root = New-Folder $rootName $fullRoot 0
-$watch = [System.Diagnostics.Stopwatch]::StartNew()
-Write-Note "Scanning $fullRoot"
-
-$stack = New-Object System.Collections.Generic.Stack[object]
-$stack.Push(@{ Node = $root; Info = $probe })
+function Invoke-ScanRoot($Node, $Info) {
+  $stack = New-Object System.Collections.Generic.Stack[object]
+  $stack.Push(@{ Node = $Node; Info = $Info })
 
 while ($stack.Count -gt 0) {
   $frame = $stack.Pop()
@@ -394,6 +384,55 @@ while ($stack.Count -gt 0) {
     }
   } catch {
     Add-ScanError $node.Path $_.Exception.Message 'error'
+  }
+}
+
+}
+
+$targets = New-Object System.Collections.Generic.List[string]
+foreach ($item in @($Path)) {
+  foreach ($part in ([string]$item).Split(';')) {
+    $piece = $part.Trim()
+    if ($piece) { [void]$targets.Add($piece) }
+  }
+}
+if ($targets.Count -lt 1) {
+  Write-Host "Path is required."
+  exit 2
+}
+
+$watch = [System.Diagnostics.Stopwatch]::StartNew()
+$scanned = New-Object System.Collections.Generic.List[object]
+$fullPaths = New-Object System.Collections.Generic.List[string]
+foreach ($target in $targets) {
+  try {
+    $fullRoot = [System.IO.Path]::GetFullPath($target)
+  } catch {
+    Write-Host "Path is not valid: $target"
+    exit 2
+  }
+  $probe = New-Object System.IO.DirectoryInfo $fullRoot
+  if (-not $probe.Exists) {
+    Write-Host "Path not found or not a directory: $fullRoot"
+    exit 2
+  }
+  $rootName = $fullRoot
+  if ($fullRoot.Length -gt 3) { $rootName = $probe.Name }
+  $scannedRoot = New-Folder $rootName $fullRoot 0
+  Write-Note "Scanning $fullRoot"
+  Invoke-ScanRoot $scannedRoot $probe
+  [void]$scanned.Add($scannedRoot)
+  [void]$fullPaths.Add($fullRoot)
+}
+
+if ($scanned.Count -eq 1) {
+  $root = $scanned[0]
+} else {
+  $joined = ($fullPaths -join ' | ')
+  $root = New-Folder 'Scanned paths' $joined 0
+  foreach ($child in $scanned) {
+    Add-Depth $child 1
+    [void]$root.Children.Add($child)
   }
 }
 
@@ -600,6 +639,7 @@ $foldersSorted = @($topFolderRows | Sort-Object { [int64]$_.logicalBytes } -Desc
 $dupSorted = @($duplicateRows | Sort-Object { [int64]$_.wasteBytes } -Descending)
 
 Write-Note "Building JSON tree..."
+if ($scanned.Count -gt 1) { $ExportDepth = $ExportDepth + 1 }
 $tree = New-ExportNode $root 0
 
 $report = [ordered]@{
@@ -608,7 +648,8 @@ $report = [ordered]@{
   version = '1.0'
   scannedAt = [datetime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
   host = [string]$env:COMPUTERNAME
-  root = $fullRoot
+  root = [string]$root.Path
+  roots = @($fullPaths)
   elapsedMs = [int64]$watch.ElapsedMilliseconds
   summary = [ordered]@{
     logicalBytes = [int64]$root.LogicalBytes
@@ -742,61 +783,37 @@ function Escape-Html([string]$Text) {
   return $Text.Replace('&', $amp).Replace('<', $lt).Replace('>', $gt)
 }
 
-function Write-HtmlFile([string]$Target) {
-  $sb = New-Object System.Text.StringBuilder
-  [void]$sb.AppendLine('<!DOCTYPE html><html><head><meta charset="utf-8"><title>SizeTree report</title>')
-  [void]$sb.AppendLine('<style>body{font-family:Segoe UI,sans-serif;margin:24px;color:#1c1914;background:#f6f3ec}table{border-collapse:collapse;width:100%;margin:12px 0 28px}td,th{border-bottom:1px solid #ddd;padding:6px 8px;text-align:left;font-size:13px}th{font-size:12px;color:#666}h1{font-size:22px}h2{font-size:16px;margin-top:28px}.mono{font-family:Consolas,monospace}</style></head><body>')
-  [void]$sb.AppendLine('<h1>SizeTree report</h1>')
-  [void]$sb.AppendLine('<p class="mono">' + (Escape-Html $fullRoot) + ' on ' + (Escape-Html ([string]$env:COMPUTERNAME)) + '</p>')
-  [void]$sb.AppendLine('<p>Logical ' + (Format-Byte ([int64]$root.LogicalBytes)) + ' | Allocated ' + (Format-Byte ([int64]$root.AllocatedBytes)) + ' | Files ' + ('{0:n0}' -f [int64]$root.FileCount) + ' | Folders ' + ('{0:n0}' -f [int64]$root.FolderCount) + ' | Duplicate waste ' + (Format-Byte $duplicateWaste) + '</p>')
-  [void]$sb.AppendLine('<h2>Largest folders</h2><table><tr><th>Path</th><th>Logical</th><th>Files</th></tr>')
-  $shown = 0
-  foreach ($row in $foldersSorted) {
-    if ($shown -ge 40) { break }
-    [void]$sb.AppendLine('<tr><td class="mono">' + (Escape-Html ([string]$row.path)) + '</td><td>' + (Format-Byte ([int64]$row.logicalBytes)) + '</td><td>' + $row.fileCount + '</td></tr>')
-    $shown++
-  }
-  [void]$sb.AppendLine('</table><h2>Largest files</h2><table><tr><th>Path</th><th>Logical</th><th>Modified</th></tr>')
-  $shown = 0
-  foreach ($row in $filesSorted) {
-    if ($shown -ge 40) { break }
-    [void]$sb.AppendLine('<tr><td class="mono">' + (Escape-Html ([string]$row.path)) + '</td><td>' + (Format-Byte ([int64]$row.logicalBytes)) + '</td><td>' + (Escape-Html ([string]$row.modifiedUtc)) + '</td></tr>')
-    $shown++
-  }
-  [void]$sb.AppendLine('</table><h2>Extensions</h2><table><tr><th>Extension</th><th>Logical</th><th>Files</th></tr>')
-  $shown = 0
-  foreach ($row in $extSorted) {
-    if ($shown -ge 30) { break }
-    [void]$sb.AppendLine('<tr><td class="mono">' + (Escape-Html ([string]$row.extension)) + '</td><td>' + (Format-Byte ([int64]$row.logicalBytes)) + '</td><td>' + $row.fileCount + '</td></tr>')
-    $shown++
-  }
-  [void]$sb.AppendLine('</table><h2>Age</h2><table><tr><th>Age</th><th>Logical</th><th>Files</th></tr>')
-  foreach ($row in $ageRows) {
-    [void]$sb.AppendLine('<tr><td>' + (Escape-Html ([string]$row.bucket)) + '</td><td>' + (Format-Byte ([int64]$row.logicalBytes)) + '</td><td>' + $row.fileCount + '</td></tr>')
-  }
-  [void]$sb.AppendLine('</table><h2>Largest files by age</h2><table><tr><th>Age</th><th>Path</th><th>Logical</th><th>Modified</th></tr>')
-  foreach ($row in $ageRows) {
-    $shownAge = 0
-    foreach ($file in @($row.files)) {
-      if ($shownAge -ge 15) { break }
-      [void]$sb.AppendLine('<tr><td>' + (Escape-Html ([string]$row.bucket)) + '</td><td class="mono">' + (Escape-Html ([string]$file.path)) + '</td><td>' + (Format-Byte ([int64]$file.logicalBytes)) + '</td><td>' + (Escape-Html ([string]$file.modifiedUtc)) + '</td></tr>')
-      $shownAge++
+function Write-HtmlFile([string]$Target, [string]$Json) {
+  $templatePath = Join-Path $PSScriptRoot 'viewer.html'
+  $safe = $Json.Replace('<', '\u003c').Replace('>', '\u003e').Replace('&', '\u0026')
+  $embed = '<script id="sizetree-embed" type="application/json">' + $safe + '</script>'
+  if (Test-Path -LiteralPath $templatePath) {
+    $template = [System.IO.File]::ReadAllText($templatePath)
+    if ($template.Contains('<!--SIZETREE_EMBED-->')) {
+      $html = $template.Replace('<!--SIZETREE_EMBED-->', $embed)
+    } else {
+      $html = $template
     }
+  } else {
+    $html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>SizeTree</title></head><body><p>viewer.html was not next to the script.</p>' + $embed + '</body></html>'
   }
-  [void]$sb.AppendLine('</table></body></html>')
   $utf8 = New-Object System.Text.UTF8Encoding $false
-  [System.IO.File]::WriteAllText($Target, $sb.ToString(), $utf8)
+  [System.IO.File]::WriteAllText($Target, $html, $utf8)
 }
 
 [void][System.IO.Directory]::CreateDirectory($OutDir)
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$jsonBuilder = New-Object System.Text.StringBuilder
+Append-Json $jsonBuilder $report
+$jsonText = $jsonBuilder.ToString()
 $writeJson = $Format -eq 'All' -or $Format -eq 'Json'
 $writeCsv = $Format -eq 'All' -or $Format -eq 'Csv'
 $writeHtml = $Format -eq 'All' -or $Format -eq 'Html'
 
 if ($writeJson) {
-  Write-JsonFile (Join-Path $OutDir 'latest.json') $report
-  Write-JsonFile (Join-Path $OutDir ("sizetree-$stamp.json")) $report
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  [System.IO.File]::WriteAllText((Join-Path $OutDir 'latest.json'), $jsonText, $utf8)
+  [System.IO.File]::WriteAllText((Join-Path $OutDir ("sizetree-$stamp.json")), $jsonText, $utf8)
 }
 if ($writeCsv) {
   $folderHeaders = @('path', 'name', 'logicalBytes', 'allocatedBytes', 'fileCount', 'folderCount', 'depth')
@@ -843,8 +860,8 @@ if ($writeCsv) {
   Write-CsvFile (Join-Path $OutDir ("sizetree-$stamp-folders.csv")) $folderHeaders $folderFlat
 }
 if ($writeHtml) {
-  Write-HtmlFile (Join-Path $OutDir 'latest.html')
-  Write-HtmlFile (Join-Path $OutDir ("sizetree-$stamp.html"))
+  Write-HtmlFile (Join-Path $OutDir 'latest.html') $jsonText
+  Write-HtmlFile (Join-Path $OutDir ("sizetree-$stamp.html")) $jsonText
 }
 
 Write-Note ("Done in {0:n1}s. Logical {1}. Files {2:n0}. Denied {3}. Reports in {4}" -f $watch.Elapsed.TotalSeconds, (Format-Byte ([int64]$root.LogicalBytes)), [int64]$root.FileCount, $script:Denied, (Resolve-Path $OutDir))
