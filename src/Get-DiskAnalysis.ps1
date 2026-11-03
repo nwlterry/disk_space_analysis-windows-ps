@@ -173,9 +173,9 @@ function Get-AgeBucket([datetime]$Utc) {
   return 'Older than 3 years'
 }
 
-function Add-Stat($Table, [string]$Key, [int64]$Count, [int64]$Logical, [int64]$Allocated) {
-  if (-not $Table.ContainsKey($Key)) {
-    $Table[$Key] = [ordered]@{
+function Add-Stat([System.Collections.IDictionary]$Table, [string]$Key, [int64]$Count, [int64]$Logical, [int64]$Allocated) {
+  if (-not $Table.Contains($Key)) {
+    $Table[$Key] = @{
       fileCount = [int64]0
       logicalBytes = [int64]0
       allocatedBytes = [int64]0
@@ -197,8 +197,8 @@ function Update-TopMin {
   $script:TopMin = $min
 }
 
-function Add-CappedFile($Bag, $Mins, [int]$Cap, [string]$Key, $FileRow) {
-  if (-not $Bag.ContainsKey($Key)) {
+function Add-CappedFile([System.Collections.IDictionary]$Bag, [System.Collections.IDictionary]$Mins, [int]$Cap, [string]$Key, $FileRow) {
+  if (-not $Bag.Contains($Key)) {
     $Bag[$Key] = New-Object System.Collections.Generic.List[object]
     $Mins[$Key] = [int64]-1
   }
@@ -422,10 +422,10 @@ while ($stack.Count -gt 0) {
         }
         if ($Duplicates -and $logical -ge $DuplicateMinBytes) {
           $key = [string]$logical
-          if (-not $script:Dup.ContainsKey($key)) {
-            $script:Dup[$key] = New-Object System.Collections.Generic.List[string]
+          if (-not $script:Dup.Contains([string]$key)) {
+            $script:Dup[[string]$key] = New-Object System.Collections.Generic.List[string]
           }
-          if ($script:Dup[$key].Count -lt 100) { [void]$script:Dup[$key].Add($display) }
+          if ($script:Dup[[string]$key].Count -lt 100) { [void]$script:Dup[[string]$key].Add($display) }
         }
       } catch {
         Add-ScanError $display $_.Exception.Message 'error'
@@ -563,48 +563,64 @@ function New-ExportNode($Node, [int]$Level) {
 }
 
 function Get-FileHashHex([string]$FilePath) {
-  $stream = $null
+  $stream = New-Object System.IO.FileStream((Get-ApiPath $FilePath), [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
   try {
-    $stream = New-Object System.IO.FileStream((Get-ApiPath $FilePath), [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
     $sha = [System.Security.Cryptography.SHA256]::Create()
     try {
       $bytes = $sha.ComputeHash($stream)
+      $text = ([System.BitConverter]::ToString([byte[]]$bytes)).Replace('-', '').ToLowerInvariant()
     } finally {
       $sha.Dispose()
     }
-    $hex = New-Object System.Text.StringBuilder
-    foreach ($b in $bytes) { [void]$hex.Append($b.ToString('x2')) }
-    return $hex.ToString()
   } finally {
-    if ($stream) { $stream.Dispose() }
+    $stream.Dispose()
   }
+  return $text
+}
+
+function Get-MapValue($Map, [string]$Key) {
+  $dict = $Map -as [System.Collections.IDictionary]
+  if ($null -eq $dict -or -not $dict.Contains($Key)) { return $null }
+  Write-Output -NoEnumerate $dict[$Key]
 }
 
 $duplicateRows = New-Object System.Collections.Generic.List[object]
 if ($Duplicates) {
   Write-Note "Grouping duplicate candidates..."
   foreach ($key in @($script:Dup.Keys)) {
-    $paths = $script:Dup[$key]
+    $stored = $script:Dup[[string]$key]
+    $paths = New-Object System.Collections.Generic.List[string]
+    if ($stored -is [System.Collections.IEnumerable] -and $stored -isnot [string]) {
+      foreach ($one in $stored) { if ($one) { [void]$paths.Add([string]$one) } }
+    } elseif ($stored) {
+      [void]$paths.Add([string]$stored)
+    }
     if ($paths.Count -lt 2) { continue }
     $size = [int64]$key
     if ($HashDuplicates) {
-      $byHash = @{}
+      $byHash = New-Object 'System.Collections.Generic.Dictionary[string,System.Collections.Generic.List[string]]'
       foreach ($filePath in $paths) {
         try {
-          $hash = Get-FileHashHex $filePath
-          if (-not $byHash.ContainsKey($hash)) { $byHash[$hash] = New-Object System.Collections.Generic.List[string] }
-          [void]$byHash[$hash].Add($filePath)
+          $hash = [string](Get-FileHashHex $filePath)
+          if ([string]::IsNullOrEmpty($hash)) { continue }
+          if ($byHash.ContainsKey($hash)) {
+            $group = $byHash[$hash]
+          } else {
+            $group = New-Object System.Collections.Generic.List[string]
+            $byHash.Add($hash, $group)
+          }
+          [void]$group.Add($filePath)
         } catch {
           Add-ScanError $filePath ("Hash failed: " + $_.Exception.Message) 'error'
         }
       }
-      foreach ($hash in @($byHash.Keys)) {
-        $group = $byHash[$hash]
+      foreach ($pair in $byHash.GetEnumerator()) {
+        $group = $pair.Value
         if ($group.Count -lt 2) { continue }
         $waste = $size * ([int64]$group.Count - 1)
-        [void]$duplicateRows.Add([ordered]@{
+        [void]$duplicateRows.Add(@{
           match = 'sha256'
-          hash = [string]$hash
+          hash = [string]$pair.Key
           logicalBytes = $size
           count = [int64]$group.Count
           wasteBytes = $waste
@@ -629,10 +645,11 @@ foreach ($row in $duplicateRows) { $duplicateWaste += [int64]$row.wasteBytes }
 
 $extRows = New-Object System.Collections.Generic.List[object]
 foreach ($key in @($script:Ext.Keys)) {
-  $row = $script:Ext[$key]
+  $row = $script:Ext[[string]$key]
   $extFiles = @()
-  if ($script:ExtFiles.ContainsKey([string]$key)) {
-    $extFiles = @($script:ExtFiles[[string]$key] | Sort-Object { [int64]$_.logicalBytes } -Descending)
+  $extStored = Get-MapValue $script:ExtFiles ([string]$key)
+  if ($null -ne $extStored) {
+    $extFiles = @($extStored | Sort-Object { [int64]$_.logicalBytes } -Descending)
   }
   [void]$extRows.Add([ordered]@{
     extension = [string]$key
@@ -648,11 +665,13 @@ $ageOrder = @('0-7 days', '8-30 days', '31-90 days', '91-365 days', '1-3 years',
 $ageRows = New-Object System.Collections.Generic.List[object]
 foreach ($bucket in $ageOrder) {
   $ageFiles = @()
-  if ($script:AgeFiles.ContainsKey($bucket)) {
-    $ageFiles = @($script:AgeFiles[$bucket] | Sort-Object { [int64]$_.logicalBytes } -Descending)
+  $ageStored = Get-MapValue $script:AgeFiles ([string]$bucket)
+  if ($null -ne $ageStored) {
+    $ageFiles = @($ageStored | Sort-Object { [int64]$_.logicalBytes } -Descending)
   }
-  if ($script:Age.ContainsKey($bucket)) {
-    $row = $script:Age[$bucket]
+  $ageMap = $script:Age -as [System.Collections.IDictionary]
+  if ($null -ne $ageMap -and $ageMap.Contains([string]$bucket)) {
+    $row = $ageMap[[string]$bucket]
     [void]$ageRows.Add([ordered]@{
       bucket = $bucket
       fileCount = [int64]$row.fileCount
