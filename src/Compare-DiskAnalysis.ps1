@@ -126,8 +126,11 @@ function New-Change($Path, $Name, [int64]$BeforeBytes, [int64]$AfterBytes) {
 
 function Take-Top($Rows, [int]$Limit) {
   $sorted = @($Rows | Sort-Object { [Math]::Abs([int64]$_.deltaBytes) } -Descending)
-  if ($sorted.Count -le $Limit) { return @($sorted) }
-  return @($sorted | Select-Object -First $Limit)
+  $list = New-Object System.Collections.Generic.List[object]
+  $n = $sorted.Length
+  if ($n -gt $Limit) { $n = $Limit }
+  for ($i = 0; $i -lt $n; $i++) { [void]$list.Add($sorted[$i]) }
+  return ,$list
 }
 
 $beforeSet = Read-FolderCsv $Before
