@@ -867,6 +867,11 @@ function Write-CsvFile([string]$Target, [string[]]$Headers, $Rows) {
   [System.IO.File]::WriteAllText($Target, $sb.ToString(), $utf8)
 }
 
+function Write-StampedCsv([string]$Name, [string[]]$Headers, $Rows) {
+  Write-CsvFile (Join-Path $OutDir ("latest-$Name.csv")) $Headers $Rows
+  Write-CsvFile (Join-Path $OutDir ("disk-space-analysis-$stamp-$Name.csv")) $Headers $Rows
+}
+
 function Format-Byte([int64]$Number) {
   $sign = ''
   $value = [double]$Number
@@ -971,15 +976,14 @@ if ($writeCsv) {
       paths = ((@($row.paths)) -join '|')
     })
   }
-  Write-CsvFile (Join-Path $OutDir 'latest-folders.csv') $folderHeaders $folderFlat
-  Write-CsvFile (Join-Path $OutDir 'latest-files.csv') $fileHeaders $filesSorted
-  Write-CsvFile (Join-Path $OutDir 'latest-extensions.csv') $extHeaders $extSorted
-  Write-CsvFile (Join-Path $OutDir 'latest-extension-files.csv') $extFileHeaders $extFileRows
-  Write-CsvFile (Join-Path $OutDir 'latest-ages.csv') $ageHeaders $ageRows
-  Write-CsvFile (Join-Path $OutDir 'latest-age-files.csv') $ageFileHeaders $ageFileRows
-  Write-CsvFile (Join-Path $OutDir 'latest-duplicates.csv') $dupHeaders $dupCsv
-  Write-CsvFile (Join-Path $OutDir 'latest-errors.csv') $errHeaders $script:Errors
-  Write-CsvFile (Join-Path $OutDir ("disk-space-analysis-$stamp-folders.csv")) $folderHeaders $folderFlat
+  Write-StampedCsv 'folders' $folderHeaders $folderFlat
+  Write-StampedCsv 'files' $fileHeaders $filesSorted
+  Write-StampedCsv 'extensions' $extHeaders $extSorted
+  Write-StampedCsv 'extension-files' $extFileHeaders $extFileRows
+  Write-StampedCsv 'ages' $ageHeaders $ageRows
+  Write-StampedCsv 'age-files' $ageFileHeaders $ageFileRows
+  Write-StampedCsv 'duplicates' $dupHeaders $dupCsv
+  Write-StampedCsv 'errors' $errHeaders $script:Errors
 }
 if ($writeHtml) {
   Write-HtmlFile (Join-Path $OutDir 'latest.html') $jsonText

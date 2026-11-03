@@ -16,7 +16,7 @@
   that source.
 
 .EXAMPLE
-  .\Compare-DiskAnalysis.ps1 -Before C:\disk-space-analysis-reports\disk-space-analysis-20261006-folders.csv -After C:\disk-space-analysis-reports\latest-folders.csv -OutDir C:\disk-space-analysis-reports\compare -EventLog
+  .\Compare-DiskAnalysis.ps1 -Before C:\disk-space-analysis-reports\disk-space-analysis-20261006-020000-folders.csv -After C:\disk-space-analysis-reports\disk-space-analysis-20261103-090000-folders.csv -OutDir C:\disk-space-analysis-reports\compare -EventLog
 #>
 [CmdletBinding()]
 param(
@@ -338,13 +338,19 @@ function Append-Json([System.Text.StringBuilder]$Sb, $Value) {
 }
 
 [void][System.IO.Directory]::CreateDirectory($OutDir)
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $sb = New-Object System.Text.StringBuilder
 Append-Json $sb $report
 $utf8 = New-Object System.Text.UTF8Encoding $false
+$jsonText = $sb.ToString()
 $jsonPath = Join-Path $OutDir 'compare.json'
+$stampedJson = Join-Path $OutDir "disk-space-analysis-$stamp-compare.json"
 $htmlPath = Join-Path $OutDir 'compare.html'
-[System.IO.File]::WriteAllText($jsonPath, $sb.ToString(), $utf8)
+$stampedHtml = Join-Path $OutDir "disk-space-analysis-$stamp-compare.html"
+[System.IO.File]::WriteAllText($jsonPath, $jsonText, $utf8)
+[System.IO.File]::WriteAllText($stampedJson, $jsonText, $utf8)
 Write-CompareHtml $htmlPath $report
+[System.IO.File]::Copy($htmlPath, $stampedHtml, $true)
 
 function Write-ChangeCsv([string]$Target, $Rows) {
   $lines = New-Object System.Text.StringBuilder
@@ -362,10 +368,13 @@ Write-ChangeCsv (Join-Path $OutDir 'grew.csv') $grewTop
 Write-ChangeCsv (Join-Path $OutDir 'shrunk.csv') $shrunkTop
 Write-ChangeCsv (Join-Path $OutDir 'added.csv') $addedTop
 Write-ChangeCsv (Join-Path $OutDir 'removed.csv') $removedTop
+foreach ($name in @('grew.csv', 'shrunk.csv', 'added.csv', 'removed.csv')) {
+  [System.IO.File]::Copy((Join-Path $OutDir $name), (Join-Path $OutDir "disk-space-analysis-$stamp-$name"), $true)
+}
 
 $delta = [int64]$afterSet.RootBytes - [int64]$beforeSet.RootBytes
 Write-Note ("Net {0} bytes. Grew {1}, shrunk {2}, added {3}, removed {4}." -f $delta, $grewTop.Count, $shrunkTop.Count, $addedTop.Count, $removedTop.Count) -Event
-Write-Note ("Wrote {0} and {1}. Log {2}" -f $jsonPath, $htmlPath, (Join-Path $OutDir 'disk-space-analysis.log')) -Event
+Write-Note ("Wrote {0}. Log {1}" -f $stampedHtml, (Join-Path $OutDir 'disk-space-analysis.log')) -Event
 } catch {
   Write-Note $_.Exception.Message -ErrorLine -Event
   exit 1

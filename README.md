@@ -34,7 +34,7 @@ One path still works: `-Path D:\`. Several paths can be comma-separated or split
 Use the folders CSV. It lists every folder, not only the JSON tree.
 
 ```powershell
-.\src\Compare-DiskAnalysis.ps1 -Before C:\disk-space-analysis-reports\disk-space-analysis-20261006-020000-folders.csv -After C:\disk-space-analysis-reports\latest-folders.csv -OutDir C:\disk-space-analysis-reports\compare
+.\src\Compare-DiskAnalysis.ps1 -Before C:\disk-space-analysis-reports\disk-space-analysis-20261006-020000-folders.csv -After C:\disk-space-analysis-reports\disk-space-analysis-20261103-090000-folders.csv -OutDir C:\disk-space-analysis-reports\compare
 ```
 
 ## Reports
@@ -43,13 +43,13 @@ Use the folders CSV. It lists every folder, not only the JSON tree.
 |---|---|
 | `latest.json` | Viewer report. Tree depth is capped (`-ExportDepth`, default 6). Totals still include everything scanned. Age groups include their largest files. |
 | `latest.html` | Same tabbed screen, offline. The scan is embedded. |
-| `latest-folders.csv` | Every folder. This is what compare uses. |
-| `latest-files.csv` | Largest files on the volume. |
-| `latest-extensions.csv` | Space by extension. |
-| `latest-ages.csv` | Space by last-write age. |
-| `latest-age-files.csv` | Largest files in each age (up to 40 per bucket). |
-| `latest-duplicates.csv` | Same-size or SHA-256 groups. |
-| `latest-errors.csv` | Access denied and skipped junctions. |
+| `latest-folders.csv` | Every folder. Compare uses `disk-space-analysis-yyyyMMdd-HHmmss-folders.csv`. |
+| `latest-files.csv` | Largest files on the volume. Also written with the same timestamp. |
+| `latest-extensions.csv` | Space by extension. Also written with the same timestamp. |
+| `latest-ages.csv` | Space by last-write age. Also written with the same timestamp. |
+| `latest-age-files.csv` | Largest files in each age (up to 40 per bucket). Also written with the same timestamp. |
+| `latest-duplicates.csv` | Same-size or SHA-256 groups. Also written with the same timestamp. |
+| `latest-errors.csv` | Access denied and skipped junctions. Also written with the same timestamp. |
 
 Junctions and symlinks are not followed. Duplicate tracking ignores files under 256 KB and, by default, under 50 MB. A size match is not proof the bytes match. Add `-HashDuplicates` for SHA-256.
 
