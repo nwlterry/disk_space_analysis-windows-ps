@@ -876,7 +876,7 @@ function Write-CsvFile([string]$Target, [string[]]$Headers, $Rows) {
 }
 
 function Write-StampedCsv([string]$Name, [string[]]$Headers, $Rows) {
-  Write-CsvFile (Join-Path $OutDir ("latest-$Name.csv")) $Headers $Rows
+  Write-CsvFile (Join-Path $OutDir ("latest-disk-space-analysis-$Name.csv")) $Headers $Rows
   Write-CsvFile (Join-Path $OutDir ("disk-space-analysis-$stamp-$Name.csv")) $Headers $Rows
 }
 
@@ -932,7 +932,7 @@ $writeHtml = $Format -eq 'All' -or $Format -eq 'Html'
 
 if ($writeJson) {
   $utf8 = New-Object System.Text.UTF8Encoding $false
-  [System.IO.File]::WriteAllText((Join-Path $OutDir 'latest.json'), $jsonText, $utf8)
+  [System.IO.File]::WriteAllText((Join-Path $OutDir 'latest-disk-space-analysis.json'), $jsonText, $utf8)
   [System.IO.File]::WriteAllText((Join-Path $OutDir ("disk-space-analysis-$stamp.json")), $jsonText, $utf8)
 }
 if ($writeCsv) {
@@ -994,7 +994,7 @@ if ($writeCsv) {
   Write-StampedCsv 'errors' $errHeaders $script:Errors
 }
 if ($writeHtml) {
-  Write-HtmlFile (Join-Path $OutDir 'latest.html') $jsonText
+  Write-HtmlFile (Join-Path $OutDir 'latest-disk-space-analysis.html') $jsonText
   Write-HtmlFile (Join-Path $OutDir ("disk-space-analysis-$stamp.html")) $jsonText
 }
 

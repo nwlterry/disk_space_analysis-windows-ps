@@ -10,9 +10,9 @@ Same job as Tree Size: folder tree, largest files, file types, age, duplicates, 
 | `src/Compare-DiskAnalysis.ps1` | Compare two `folders.csv` snapshots |
 | `src/viewer.html` | Offline screen. Keep it next to the scanner. |
 
-`latest.json` opens in the disk-space-analysis viewer. `latest.html` is that same tabbed screen with the scan embedded, so it opens from disk with no network. `viewer.html` must sit beside `Get-DiskAnalysis.ps1` for that HTML to be written.
+`latest-disk-space-analysis.json` opens in the disk-space-analysis viewer. `latest-disk-space-analysis.html` is that same tabbed screen with the scan embedded, so it opens from disk with no network. `viewer.html` must sit beside `Get-DiskAnalysis.ps1` for that HTML to be written.
 
-Each age group includes up to 40 of the largest files in that age. Click the age to list them. The full list of those files is also `latest-age-files.csv`.
+Each age group includes up to 40 of the largest files in that age. Click the age to list them. The full list of those files is also `latest-disk-space-analysis-age-files.csv`.
 
 Each file type keeps up to 40 of its largest files. Click the type to list them. Those rows are also `latest-extension-files.csv`.
 
@@ -41,15 +41,15 @@ Use the folders CSV. It lists every folder, not only the JSON tree.
 
 | File | What it is |
 |---|---|
-| `latest.json` | Viewer report. Tree depth is capped (`-ExportDepth`, default 6). Totals still include everything scanned. Age groups include their largest files. |
-| `latest.html` | Same tabbed screen, offline. The scan is embedded. |
-| `latest-folders.csv` | Every folder. Compare uses `disk-space-analysis-yyyyMMdd-HHmmss-folders.csv`. |
-| `latest-files.csv` | Largest files on the volume. Also written with the same timestamp. |
-| `latest-extensions.csv` | Space by extension. Also written with the same timestamp. |
-| `latest-ages.csv` | Space by last-write age. Also written with the same timestamp. |
-| `latest-age-files.csv` | Largest files in each age (up to 40 per bucket). Also written with the same timestamp. |
-| `latest-duplicates.csv` | Same-size or SHA-256 groups. Also written with the same timestamp. |
-| `latest-errors.csv` | Access denied and skipped junctions. Also written with the same timestamp. |
+| `latest-disk-space-analysis.json` | Viewer report. Tree depth is capped (`-ExportDepth`, default 6). Totals still include everything scanned. Age groups include their largest files. |
+| `latest-disk-space-analysis.html` | Same tabbed screen, offline. The scan is embedded. |
+| `latest-disk-space-analysis-folders.csv` | Every folder. Compare uses `disk-space-analysis-yyyyMMdd-HHmmss-folders.csv`. |
+| `latest-disk-space-analysis-files.csv` | Largest files on the volume. Also written with the same timestamp. |
+| `latest-disk-space-analysis-extensions.csv` | Space by extension. Also written with the same timestamp. |
+| `latest-disk-space-analysis-ages.csv` | Space by last-write age. Also written with the same timestamp. |
+| `latest-disk-space-analysis-age-files.csv` | Largest files in each age (up to 40 per bucket). Also written with the same timestamp. |
+| `latest-disk-space-analysis-duplicates.csv` | Same-size or SHA-256 groups. Also written with the same timestamp. |
+| `latest-disk-space-analysis-errors.csv` | Access denied and skipped junctions. Also written with the same timestamp. |
 
 Junctions and symlinks are not followed. Duplicate tracking ignores files under 256 KB and, by default, under 50 MB. A size match is not proof the bytes match. Add `-HashDuplicates` for SHA-256.
 

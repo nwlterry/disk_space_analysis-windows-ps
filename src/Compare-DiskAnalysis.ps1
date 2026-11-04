@@ -7,7 +7,7 @@
   Reads the folders.csv files written by Get-DiskAnalysis.ps1 (or disk-space-analysis.exe)
   and reports which folders grew, shrank, appeared, or disappeared.
   Parent totals include their children, so a new large file shows up on every
-  folder above it. Sort is by absolute change. compare.html opens the same
+  folder above it. Sort is by absolute change. compare-disk-space-analysis.html opens the same
   change screen as the web viewer: earlier, later, net change, then the bars.
 
 .PARAMETER EventLog
@@ -343,10 +343,10 @@ $sb = New-Object System.Text.StringBuilder
 Append-Json $sb $report
 $utf8 = New-Object System.Text.UTF8Encoding $false
 $jsonText = $sb.ToString()
-$jsonPath = Join-Path $OutDir 'compare.json'
-$stampedJson = Join-Path $OutDir "disk-space-analysis-$stamp-compare.json"
-$htmlPath = Join-Path $OutDir 'compare.html'
-$stampedHtml = Join-Path $OutDir "disk-space-analysis-$stamp-compare.html"
+$jsonPath = Join-Path $OutDir 'compare-disk-space-analysis.json'
+$stampedJson = Join-Path $OutDir "compare-disk-space-analysis-$stamp.json"
+$htmlPath = Join-Path $OutDir 'compare-disk-space-analysis.html'
+$stampedHtml = Join-Path $OutDir "compare-disk-space-analysis-$stamp.html"
 [System.IO.File]::WriteAllText($jsonPath, $jsonText, $utf8)
 [System.IO.File]::WriteAllText($stampedJson, $jsonText, $utf8)
 Write-CompareHtml $htmlPath $report
@@ -364,12 +364,12 @@ function Write-ChangeCsv([string]$Target, $Rows) {
   [System.IO.File]::WriteAllText($Target, $lines.ToString(), $bom)
 }
 
-Write-ChangeCsv (Join-Path $OutDir 'grew.csv') $grewTop
-Write-ChangeCsv (Join-Path $OutDir 'shrunk.csv') $shrunkTop
-Write-ChangeCsv (Join-Path $OutDir 'added.csv') $addedTop
-Write-ChangeCsv (Join-Path $OutDir 'removed.csv') $removedTop
-foreach ($name in @('grew.csv', 'shrunk.csv', 'added.csv', 'removed.csv')) {
-  [System.IO.File]::Copy((Join-Path $OutDir $name), (Join-Path $OutDir "disk-space-analysis-$stamp-$name"), $true)
+Write-ChangeCsv (Join-Path $OutDir 'compare-disk-space-analysis-grew.csv') $grewTop
+Write-ChangeCsv (Join-Path $OutDir 'compare-disk-space-analysis-shrunk.csv') $shrunkTop
+Write-ChangeCsv (Join-Path $OutDir 'compare-disk-space-analysis-added.csv') $addedTop
+Write-ChangeCsv (Join-Path $OutDir 'compare-disk-space-analysis-removed.csv') $removedTop
+foreach ($name in @('grew', 'shrunk', 'added', 'removed')) {
+  [System.IO.File]::Copy((Join-Path $OutDir "compare-disk-space-analysis-$name.csv"), (Join-Path $OutDir "compare-disk-space-analysis-$stamp-$name.csv"), $true)
 }
 
 $delta = [int64]$afterSet.RootBytes - [int64]$beforeSet.RootBytes
