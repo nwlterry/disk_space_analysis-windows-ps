@@ -16,7 +16,7 @@
   that source.
 
 .EXAMPLE
-  .\Compare-DiskAnalysis.ps1 -Before C:\disk-space-analysis-reports\disk-space-analysis-20261006-020000-folders.csv -After C:\disk-space-analysis-reports\disk-space-analysis-20261103-090000-folders.csv -OutDir C:\disk-space-analysis-reports\compare -EventLog
+  .\Compare-DiskAnalysis.ps1 -Before C:\disk-space-analysis-reports\disk-space-analysis-folders-20261006-020000.csv -After C:\disk-space-analysis-reports\disk-space-analysis-folders-20261103-090000.csv -OutDir C:\disk-space-analysis-reports\compare -EventLog
 #>
 [CmdletBinding()]
 param(
@@ -344,9 +344,9 @@ Append-Json $sb $report
 $utf8 = New-Object System.Text.UTF8Encoding $false
 $jsonText = $sb.ToString()
 $jsonPath = Join-Path $OutDir 'compare-disk-space-analysis.json'
-$stampedJson = Join-Path $OutDir "compare-disk-space-analysis-$stamp.json"
+$stampedJson = Join-Path $OutDir ('compare-disk-space-analysis-' + $stamp + '.json')
 $htmlPath = Join-Path $OutDir 'compare-disk-space-analysis.html'
-$stampedHtml = Join-Path $OutDir "compare-disk-space-analysis-$stamp.html"
+$stampedHtml = Join-Path $OutDir ('compare-disk-space-analysis-' + $stamp + '.html')
 [System.IO.File]::WriteAllText($jsonPath, $jsonText, $utf8)
 [System.IO.File]::WriteAllText($stampedJson, $jsonText, $utf8)
 Write-CompareHtml $htmlPath $report
@@ -369,7 +369,9 @@ Write-ChangeCsv (Join-Path $OutDir 'compare-disk-space-analysis-shrunk.csv') $sh
 Write-ChangeCsv (Join-Path $OutDir 'compare-disk-space-analysis-added.csv') $addedTop
 Write-ChangeCsv (Join-Path $OutDir 'compare-disk-space-analysis-removed.csv') $removedTop
 foreach ($name in @('grew', 'shrunk', 'added', 'removed')) {
-  [System.IO.File]::Copy((Join-Path $OutDir "compare-disk-space-analysis-$name.csv"), (Join-Path $OutDir "compare-disk-space-analysis-$stamp-$name.csv"), $true)
+  $source = Join-Path $OutDir ('compare-disk-space-analysis-' + $name + '.csv')
+  $dest = Join-Path $OutDir ('compare-disk-space-analysis-' + $name + '-' + $stamp + '.csv')
+  [System.IO.File]::Copy($source, $dest, $true)
 }
 
 $delta = [int64]$afterSet.RootBytes - [int64]$beforeSet.RootBytes

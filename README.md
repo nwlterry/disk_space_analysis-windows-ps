@@ -34,7 +34,7 @@ One path still works: `-Path D:\`. Several paths can be comma-separated or split
 Use the folders CSV. It lists every folder, not only the JSON tree.
 
 ```powershell
-.\src\Compare-DiskAnalysis.ps1 -Before C:\disk-space-analysis-reports\disk-space-analysis-20261006-020000-folders.csv -After C:\disk-space-analysis-reports\disk-space-analysis-20261103-090000-folders.csv -OutDir C:\disk-space-analysis-reports\compare
+.\src\Compare-DiskAnalysis.ps1 -Before C:\disk-space-analysis-reports\disk-space-analysis-folders-20261006-020000.csv -After C:\disk-space-analysis-reports\disk-space-analysis-folders-20261103-090000.csv -OutDir C:\disk-space-analysis-reports\compare
 ```
 
 ## Reports

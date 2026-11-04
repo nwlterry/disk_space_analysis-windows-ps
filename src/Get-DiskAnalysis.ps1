@@ -876,8 +876,10 @@ function Write-CsvFile([string]$Target, [string[]]$Headers, $Rows) {
 }
 
 function Write-StampedCsv([string]$Name, [string[]]$Headers, $Rows) {
-  Write-CsvFile (Join-Path $OutDir ("latest-disk-space-analysis-$Name.csv")) $Headers $Rows
-  Write-CsvFile (Join-Path $OutDir ("disk-space-analysis-$stamp-$Name.csv")) $Headers $Rows
+  $latestName = 'latest-disk-space-analysis-' + $Name + '.csv'
+  $historyName = 'disk-space-analysis-' + $Name + '-' + $stamp + '.csv'
+  Write-CsvFile (Join-Path $OutDir $latestName) $Headers $Rows
+  Write-CsvFile (Join-Path $OutDir $historyName) $Headers $Rows
 }
 
 function Format-Byte([int64]$Number) {
@@ -933,7 +935,7 @@ $writeHtml = $Format -eq 'All' -or $Format -eq 'Html'
 if ($writeJson) {
   $utf8 = New-Object System.Text.UTF8Encoding $false
   [System.IO.File]::WriteAllText((Join-Path $OutDir 'latest-disk-space-analysis.json'), $jsonText, $utf8)
-  [System.IO.File]::WriteAllText((Join-Path $OutDir ("disk-space-analysis-$stamp.json")), $jsonText, $utf8)
+  [System.IO.File]::WriteAllText((Join-Path $OutDir ('disk-space-analysis-' + $stamp + '.json')), $jsonText, $utf8)
 }
 if ($writeCsv) {
   $folderHeaders = @('path', 'name', 'logicalBytes', 'allocatedBytes', 'fileCount', 'folderCount', 'depth')
@@ -995,7 +997,7 @@ if ($writeCsv) {
 }
 if ($writeHtml) {
   Write-HtmlFile (Join-Path $OutDir 'latest-disk-space-analysis.html') $jsonText
-  Write-HtmlFile (Join-Path $OutDir ("disk-space-analysis-$stamp.html")) $jsonText
+  Write-HtmlFile (Join-Path $OutDir ('disk-space-analysis-' + $stamp + '.html')) $jsonText
 }
 
 Write-Note ("Done in {0:n1}s. Logical {1}. Files {2:n0}. Denied {3}. Reports in {4}. Log {5}" -f $watch.Elapsed.TotalSeconds, (Format-Byte ([int64]$root.LogicalBytes)), [int64]$root.FileCount, $script:Denied, (Resolve-Path $OutDir), (Join-Path $OutDir 'disk-space-analysis.log')) -Event
